@@ -1,4 +1,4 @@
-// Fix: Declare chrome as any to resolve "Cannot find name 'chrome'" errors
+// FIX: Declare chrome as any to resolve "Cannot find name 'chrome'" errors
 // in environments where @types/chrome is not installed.
 declare const chrome: any;
 
@@ -29,7 +29,6 @@ const injectHighlightStyles = () => {
         .${HIGHLIGHT_CLASS} {
             animation: customerExtractorFadeInOut 3s ease-in-out;
             border-radius: 3px;
-            /* Ensure the highlight doesn't alter layout */
             box-shadow: 0 0 0 2px transparent; 
         }
     `;
@@ -68,8 +67,8 @@ const removeAllHighlights = () => {
 };
 // --- End Highlighting Feature ---
 
-
 let observer: MutationObserver | null = null;
+let debounceTimeout: number;
 
 const scanPageForContacts = async () => {
     console.log('Scanning page for contacts...');
@@ -81,14 +80,11 @@ const scanPageForContacts = async () => {
 
     // FIX: Define array of excluded tags to prevent TypeScript error "Property 'includes' does not exist on type 'never'".
     const EXCLUDED_TAGS = ['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD', 'TITLE'];
-    // Use a TreeWalker to efficiently find all relevant text nodes in the document
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
         acceptNode: (node) => {
-            // Filter out text nodes inside non-content tags to reduce noise
             if (node.parentElement && EXCLUDED_TAGS.includes(node.parentElement.tagName)) {
                 return NodeFilter.FILTER_REJECT;
             }
-            // Filter out nodes that are only whitespace
             if (!node.nodeValue?.trim()) {
                 return NodeFilter.FILTER_REJECT;
             }
@@ -104,38 +100,29 @@ const scanPageForContacts = async () => {
         if (emails) {
             for (const email of emails) {
                 if (!existingEmails.has(email)) {
-                    // We found a new, unique email address
                     const parentElement = node.parentElement;
 
                     if (parentElement instanceof HTMLElement) {
                         highlightElement(parentElement);
 
-                        // Find a logical container for the contact info (e.g., a card, list item, or table row)
                         const contextElement = parentElement.closest('li, tr, div[class*="item"], div[class*="card"]') || parentElement;
                         
-                        // Fix: Property 'innerText' does not exist on type 'Element'. Check if contextElement is an HTMLElement before accessing innerText.
                         if (contextElement instanceof HTMLElement) {
                             const contextText = contextElement.innerText;
                         
-                            // --- Enhanced Name Extraction Logic ---
                             let name = 'Unknown';
-                            // This regex looks for patterns like "First Last", "First M. Last", "First Middle Last"
                             const NAME_REGEX = /\b([A-Z][a-z']{1,}(?:\s[A-Z][a-z']{1,}|\s[A-Z]\.?){1,})\b/g;
                             
-                            // Find all potential names in the broader context
-                            // FIX: Check if match returns null to ensure `potentialNames` is always an array, fixing type errors.
-                            const potentialNames = contextText.match(NAME_REGEX);
+                            const potentialNames = contextText.match(NAME_REGEX) || [];
                             
-                            if (potentialNames && potentialNames.length > 0) {
+                            if (potentialNames.length > 0) {
                                 const emailIndex = contextText.indexOf(email);
-                                // Filter out matches that are too far away or contain email-like characters
                                 const nameCandidates = potentialNames.filter(pName => {
                                     const nameIndex = contextText.indexOf(pName);
                                     return Math.abs(emailIndex - nameIndex) < 250 && !pName.includes('@');
                                 });
 
                                 if (nameCandidates.length > 0) {
-                                    // Heuristic: pick the name candidate that is physically closest to the email in the text.
                                     name = nameCandidates.reduce((closest, current) => {
                                         const closestIndex = contextText.indexOf(closest);
                                         const currentIndex = contextText.indexOf(current);
@@ -146,9 +133,7 @@ const scanPageForContacts = async () => {
                                     });
                                 }
                             }
-                            // --- End Enhanced Name Extraction Logic ---
 
-                            // Find a phone number within the same contextual element
                             const phoneMatch = contextText.match(PHONE_REGEX);
 
                             const customerToValidate = {
@@ -160,7 +145,6 @@ const scanPageForContacts = async () => {
                             
                             if (isCustomer(customerToValidate)) {
                                 newCustomers.push(customerToValidate);
-                                // Add to set immediately to prevent duplicates from the same scan session
                                 existingEmails.add(email); 
                             }
                         }
@@ -177,16 +161,14 @@ const scanPageForContacts = async () => {
 };
 
 const startObserver = () => {
-    if (observer) return; // Already observing
+    if (observer) return;
 
     injectHighlightStyles();
-    scanPageForContacts(); // Perform an initial scan
-
-    let debounceTimeout: number;
+    scanPageForContacts();
 
     observer = new MutationObserver((mutations) => {
         clearTimeout(debounceTimeout);
-        debounceTimeout = setTimeout(() => {
+        debounceTimeout = window.setTimeout(() => {
             const hasSignificantChanges = mutations.some(m => m.addedNodes.length > 0 || m.removedNodes.length > 0);
             if (hasSignificantChanges) {
                 scanPageForContacts();
@@ -208,13 +190,10 @@ const stopObserver = () => {
         observer = null;
         console.log('Mutation observer stopped.');
     }
-    // Clean up any visual artifacts left on the page
     removeAllHighlights();
     removeHighlightStyles();
 };
 
-
-// Listen for messages from the popup to start or stop scanning
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'START_SCAN') {
         startObserver();
@@ -223,9 +202,5 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         stopObserver();
         sendResponse({ status: 'Scanning stopped' });
     }
-    return true; // Indicates an asynchronous response
+    return true;
 });
-
-// Note: The previous 'checkInitialScanState' function was removed as it relied on
-// the 'chrome.tabs' API, which is not available in content scripts. The popup
-// is now solely responsible for initiating a scan when opened or toggled.

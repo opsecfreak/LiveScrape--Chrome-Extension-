@@ -1,23 +1,29 @@
-import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { resolve } from 'path';
 
-export default defineConfig(({ mode }) => {
-    const env = loadEnv(mode, '.', '');
-    return {
-      server: {
-        port: 3000,
-        host: '0.0.0.0',
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  build: {
+    outDir: 'dist',
+    rollupOptions: {
+      input: {
+        // FIX: Removed `__dirname` as it's not available in Vite's ESM context.
+        popup: resolve('public/index.html'),
+        // FIX: Removed `__dirname` as it's not available in Vite's ESM context.
+        content: resolve('src/content/scanner.ts'),
       },
-      plugins: [react()],
-      define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
+      output: {
+        entryFileNames: (chunkInfo) => {
+          // Keep the original name for the content script
+          if (chunkInfo.name === 'content') {
+            return 'content/scanner.js';
+          }
+          // Default naming for other chunks
+          return 'assets/[name]-[hash].js';
+        },
       },
-      resolve: {
-        alias: {
-          '@': path.resolve(__dirname, '.'),
-        }
-      }
-    };
+    },
+  },
 });
