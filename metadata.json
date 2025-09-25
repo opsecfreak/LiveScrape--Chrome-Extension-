@@ -1,0 +1,5 @@
+{
+  "name": "Customer Data Extractor",
+  "description": "A Chrome extension to automatically find and list customer contact information (names, emails, phone numbers) from any webpage, handling pagination and preventing duplicates.",
+  "requestFramePermissions": []
+}
