@@ -32,7 +32,8 @@ const App: React.FC = () => {
             }
         });
 
-        const storageListener = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
+        // FIX: Use `any` for StorageChange type to fix "Cannot find namespace 'chrome'" error.
+        const storageListener = (changes: { [key: string]: any }, areaName: string) => {
             if (areaName === 'local' && changes.customers) {
                 setCustomers(changes.customers.newValue || []);
             }

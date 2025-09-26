@@ -70,6 +70,9 @@ const removeAllHighlights = () => {
 let observer: MutationObserver | null = null;
 let debounceTimeout: number;
 
+// FIX: Define array of excluded tags at module scope to help TypeScript inference and prevent "never" type error.
+const EXCLUDED_TAGS = ['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD', 'TITLE'];
+
 const scanPageForContacts = async () => {
     console.log('Scanning page for contacts...');
 
@@ -78,8 +81,6 @@ const scanPageForContacts = async () => {
     
     const newCustomers: Customer[] = [];
 
-    // FIX: Define array of excluded tags to prevent TypeScript error "Property 'includes' does not exist on type 'never'".
-    const EXCLUDED_TAGS = ['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD', 'TITLE'];
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
         acceptNode: (node) => {
             if (node.parentElement && EXCLUDED_TAGS.includes(node.parentElement.tagName)) {
@@ -110,29 +111,63 @@ const scanPageForContacts = async () => {
                         if (contextElement instanceof HTMLElement) {
                             const contextText = contextElement.innerText;
                         
+                            // --- Enhanced Name Extraction Logic ---
                             let name = 'Unknown';
-                            const NAME_REGEX = /\b([A-Z][a-z']{1,}(?:\s[A-Z][a-z']{1,}|\s[A-Z]\.?){1,})\b/g;
-                            
-                            const potentialNames = contextText.match(NAME_REGEX) || [];
-                            
-                            if (potentialNames.length > 0) {
+                            let nameFound = false;
+
+                            // Regex 1: Standard names with optional titles (e.g., "Dr. John M. Smith")
+                            const NAME_REGEX = /\b((?:(?:Dr|Mr|Ms|Mrs|Prof)\.?\s)?[A-Z][a-z']+(?:\s[A-Z][a-z']+|\s[A-Z]\.?)+)\b/g;
+                            // FIX: Check if match returns null to ensure `potentialNames` is always an array, fixing type errors.
+                            const potentialNames = contextText.match(NAME_REGEX);
+
+                            if (potentialNames && potentialNames.length > 0) {
                                 const emailIndex = contextText.indexOf(email);
                                 const nameCandidates = potentialNames.filter(pName => {
                                     const nameIndex = contextText.indexOf(pName);
-                                    return Math.abs(emailIndex - nameIndex) < 250 && !pName.includes('@');
+                                    // Filter out matches that are too far away or contain email-like characters
+                                    return Math.abs(emailIndex - nameIndex) < 300 && !pName.includes('@');
                                 });
 
                                 if (nameCandidates.length > 0) {
+                                    // Heuristic: pick the name candidate that is physically closest to the email.
                                     name = nameCandidates.reduce((closest, current) => {
                                         const closestIndex = contextText.indexOf(closest);
                                         const currentIndex = contextText.indexOf(current);
-                                        if (Math.abs(emailIndex - currentIndex) < Math.abs(emailIndex - closestIndex)) {
-                                            return current;
-                                        }
-                                        return closest;
+                                        return Math.abs(emailIndex - currentIndex) < Math.abs(emailIndex - closestIndex) ? current : closest;
                                     });
+                                    nameFound = true;
                                 }
                             }
+
+                            // Fallback Regex 2: "Lastname, Firstname" format
+                            if (!nameFound) {
+                                const LAST_FIRST_REGEX = /\b([A-Za-z']{2,},\s[A-Za-z']{2,})\b/g;
+                                // FIX: Check if match returns null to ensure `lastFirstNames` is always an array, fixing "never" type error.
+                                const lastFirstNames = contextText.match(LAST_FIRST_REGEX);
+                                if (lastFirstNames && lastFirstNames.length > 0) {
+                                    const emailIndex = contextText.indexOf(email);
+                                    const nameCandidates = lastFirstNames.filter(pName => {
+                                        const nameIndex = contextText.indexOf(pName);
+                                        return Math.abs(emailIndex - nameIndex) < 300 && !pName.includes('@');
+                                    });
+
+                                    if (nameCandidates.length > 0) {
+                                        const foundName = nameCandidates.reduce((closest, current) => {
+                                            const closestIndex = contextText.indexOf(closest);
+                                            const currentIndex = contextText.indexOf(current);
+                                            return Math.abs(emailIndex - currentIndex) < Math.abs(emailIndex - closestIndex) ? current : closest;
+                                        });
+                                        // Reformat to "Firstname Lastname"
+                                        const parts = foundName.split(',').map(part => part.trim());
+                                        if (parts.length === 2) {
+                                            name = `${parts[1]} ${parts[0]}`;
+                                            nameFound = true;
+                                        }
+                                    }
+                                }
+                            }
+                            // --- End Enhanced Name Extraction Logic ---
+
 
                             const phoneMatch = contextText.match(PHONE_REGEX);
 
